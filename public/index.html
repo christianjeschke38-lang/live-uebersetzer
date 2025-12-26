@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Live Übersetzer (Echte VAD)</title>
+  <style>
+    :root{
+      --bg:#0b1020; --line:rgba(255,255,255,.14);
+      --text:#eaf0ff; --muted:rgba(234,240,255,.72);
+      --good:#49d17c; --warn:#ffcc66;
+      --shadow: 0 18px 60px rgba(0,0,0,.45);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:var(--sans); color:var(--text);
+      background:
+        radial-gradient(900px 500px at 10% 0%, rgba(122,167,255,.25), transparent 60%),
+        radial-gradient(700px 420px at 90% 10%, rgba(167,139,250,.22), transparent 55%),
+        radial-gradient(900px 700px at 50% 110%, rgba(73,209,124,.12), transparent 55%),
+        var(--bg);
+      min-height:100vh; padding:22px;
+    }
+    .wrap{max-width:1100px;margin:0 auto}
+    .top{
+      display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+      padding:18px; border:1px solid var(--line); border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+      box-shadow: var(--shadow);
+    }
+    .brand h1{margin:0;font-size:18px}
+    .brand p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:720px;line-height:1.35}
+    .statusRow{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:10px;color:var(--muted);font-size:13px;}
+    .dot{width:10px;height:10px;border-radius:999px;background:rgba(255,255,255,.22);border:1px solid var(--line)}
+    .dot.live{background:var(--good); border-color:rgba(73,209,124,.6); box-shadow:0 0 0 6px rgba(73,209,124,.10)}
+    .dot.wait{background:var(--warn); border-color:rgba(255,204,102,.6); box-shadow:0 0 0 6px rgba(255,204,102,.10)}
+    .dot.off{background:rgba(255,255,255,.18)}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);font-size:12px;}
+    .right{min-width:410px;display:flex;flex-direction:column;gap:10px;align-items:flex-end;}
+    .btnRow{display:flex;gap:10px;width:410px;}
+    .ptt,.toggle{
+      padding:14px 14px;border-radius:16px;border:1px solid rgba(255,255,255,.16);
+      color:var(--text);font-weight:900;cursor:pointer;user-select:none;
+      box-shadow:0 10px 35px rgba(0,0,0,.25);text-align:center;
+    }
+    .ptt{flex:1;background:linear-gradient(180deg, rgba(122,167,255,.22), rgba(167,139,250,.16));}
+    .ptt.holding{background:linear-gradient(180deg, rgba(73,209,124,.26), rgba(122,167,255,.12));border-color:rgba(73,209,124,.55);}
+    .toggle{width:190px;background:rgba(255,255,255,.06);}
+    .toggle.on{background:linear-gradient(180deg, rgba(73,209,124,.22), rgba(255,255,255,.06));border-color:rgba(73,209,124,.55);}
+    .panel{width:410px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.04);padding:12px;}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;color:var(--muted);font-size:12px;}
+    input[type="range"]{width:200px;}
+    select{
+      width: 240px; border-radius: 12px; border:1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.06); color: var(--text); padding: 8px 10px; outline:none;
+    }
+    .btn{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:var(--text);border-radius:12px;padding:10px 10px;cursor:pointer;font-weight:900;font-size:12px;width:100%;text-align:center;}
+    .hint{margin-top:8px;color:var(--muted);font-size:12px;line-height:1.35}
+    .viz{
+      margin-top:14px;border:1px solid var(--line);border-radius:var(--radius);
+      background:rgba(255,255,255,.035);padding:12px;box-shadow:0 10px 35px rgba(0,0,0,.18);
+    }
+    .vizTop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+    .meterOuter{flex:1;height:12px;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:999px;overflow:hidden}
+    .meterInner{height:100%;width:0%;background:rgba(234,240,255,.92)}
+    canvas{width:100%;height:86px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
+    .grid{margin-top:16px;display:grid;grid-template-columns:1fr;gap:14px;}
+    @media (min-width:980px){.grid{grid-template-columns:1fr 1fr 1fr;}}
+    .card{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.04);padding:14px;box-shadow:0 10px 35px rgba(0,0,0,.22);min-height:140px;}
+    .card h3{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:900;display:flex;align-items:center;gap:8px;}
+    .mono{font-family:var(--mono);white-space:pre-wrap;line-height:1.35;font-size:13px}
+    .muted{color:var(--muted)}
+  </style>
+
+  <!-- Offizieller Weg (Bundle + globale "vad") -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/bundle.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <h1>Live Übersetzer (Echte VAD Engine)</h1>
+      <p>
+        Silero VAD (Browser-Bundle) → viel weniger False Positives durch Klicks/Knarzen.
+        Wenn noch was durchrutscht: „VAD Strenge“ hoch.
+      </p>
+      <div class="statusRow">
+        <div id="dot" class="dot off"></div>
+        <div id="statusText">bereit</div>
+        <span class="pill" id="vadPill">VAD: bereit</span>
+        <span class="pill" id="rmsText">mic: 0%</span>
+        <span class="pill" id="dirPill">🇹🇳 → 🇩🇪</span>
+        <span class="pill" id="modePill">Modus: PTT</span>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="btnRow">
+        <div id="ptt" class="ptt">🎙️ Push-to-Talk</div>
+        <div id="holdToggle" class="toggle">⏺ Dauer: AUS</div>
+      </div>
+
+      <div class="panel">
+        <div class="row" style="margin-top:0;">
+          <label>Richtung</label>
+          <select id="direction">
+            <option value="tn2de">🇹🇳 Tunesisch → 🇩🇪 Deutsch</option>
+            <option value="de2tn">🇩🇪 Deutsch → 🇹🇳 Tunesisch</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label>VAD Strenge</label>
+          <div>
+            <input id="strict" type="range" min="0" max="100" step="1" value="80">
+            <span id="strictVal" class="muted">80</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>Min. Sprechdauer</label>
+          <div>
+            <input id="minSpeech" type="range" min="120" max="900" step="30" value="360">
+            <span id="minSpeechVal" class="muted">360ms</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <label>Max. Segment</label>
+          <div>
+            <input id="maxSeg" type="range" min="2500" max="14000" step="250" value="9000">
+            <span id="maxSegVal" class="muted">9000ms</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="reloadVAD" class="btn">🔄 VAD neu laden</button>
+        </div>
+
+        <div class="hint">
+          Tipp: Strenge 85–92 = fast keine Klicks/Knarzen. Strenge 60–75 = hört mehr, aber mehr False Positives.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="viz">
+    <div class="vizTop">
+      <div class="meterOuter"><div id="meter" class="meterInner"></div></div>
+      <span class="pill" id="listenPill">idle</span>
+    </div>
+    <canvas id="wave" width="980" height="140"></canvas>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3 id="h1">🇹🇳 Quelle (Arabisch)</h3>
+      <div id="col1" class="mono muted"></div>
+    </div>
+    <div class="card">
+      <h3 id="h2">🔤 Quelle (Latin)</h3>
+      <div id="col2" class="mono muted"></div>
+    </div>
+    <div class="card">
+      <h3 id="h3">🇩🇪 Übersetzung</h3>
+      <div id="col3" class="mono muted"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ----- UI -----
+  const dot = document.getElementById("dot");
+  const statusText = document.getElementById("statusText");
+  const vadPill = document.getElementById("vadPill");
+  const rmsText = document.getElementById("rmsText");
+  const dirPill = document.getElementById("dirPill");
+  const modePill = document.getElementById("modePill");
+  const listenPill = document.getElementById("listenPill");
+  const meter = document.getElementById("meter");
+
+  const ptt = document.getElementById("ptt");
+  const holdToggle = document.getElementById("holdToggle");
+  const direction = document.getElementById("direction");
+
+  const strict = document.getElementById("strict");
+  const strictVal = document.getElementById("strictVal");
+  const minSpeech = document.getElementById("minSpeech");
+  const minSpeechVal = document.getElementById("minSpeechVal");
+  const maxSeg = document.getElementById("maxSeg");
+  const maxSegVal = document.getElementById("maxSegVal");
+  const reloadVAD = document.getElementById("reloadVAD");
+
+  const h1=document.getElementById("h1");
+  const h2=document.getElementById("h2");
+  const h3=document.getElementById("h3");
+  const col1=document.getElementById("col1");
+  const col2=document.getElementById("col2");
+  const col3=document.getElementById("col3");
+
+  const canvas=document.getElementById("wave");
+  const c2d=canvas.getContext("2d");
+
+  function setDot(state){
+    dot.className = "dot " + (state==="live"?"live":state==="wait"?"wait":"off");
+  }
+  function setStatus(state, text){
+    setDot(state);
+    statusText.textContent = text;
+  }
+
+  function updateLabels(){
+    strictVal.textContent = strict.value;
+    minSpeechVal.textContent = `${minSpeech.value}ms`;
+    maxSegVal.textContent = `${maxSeg.value}ms`;
+  }
+  strict.oninput = updateLabels;
+  minSpeech.oninput = updateLabels;
+  maxSeg.oninput = updateLabels;
+  updateLabels();
+
+  function syncColumns(){
+    if(direction.value==="tn2de"){
+      dirPill.textContent="🇹🇳 → 🇩🇪";
+      h1.textContent="🇹🇳 Quelle (Arabisch)";
+      h2.textContent="🔤 Quelle (Latin)";
+      h3.textContent="🇩🇪 Übersetzung";
+    }else{
+      dirPill.textContent="🇩🇪 → 🇹🇳";
+      h1.textContent="🇩🇪 Quelle (verstanden)";
+      h2.textContent="🇹🇳 Ziel (Arabisch)";
+      h3.textContent="🇹🇳 Ziel (Latin)";
+    }
+    col1.textContent=""; col2.textContent=""; col3.textContent="";
+  }
+  direction.onchange = syncColumns;
+  syncColumns();
+
+  // ----- Visualizer -----
+  let vizStream=null, audioCtx=null, analyser=null, dataArray=null, vizTimer=null;
+
+  async function ensureViz(){
+    if (audioCtx) return;
+    vizStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(vizStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+    dataArray = new Uint8Array(analyser.fftSize);
+  }
+
+  function draw(){
+    if(!analyser) return;
+    analyser.getByteTimeDomainData(dataArray);
+
+    let sum=0;
+    for(let i=0;i<dataArray.length;i++){
+      const v=(dataArray[i]-128)/128;
+      sum += v*v;
+    }
+    const rms = Math.sqrt(sum/dataArray.length);
+    const pct = Math.max(0, Math.min(100, rms*1800));
+    meter.style.width = pct.toFixed(1)+"%";
+    rmsText.textContent = "mic: " + pct.toFixed(0) + "%";
+
+    c2d.clearRect(0,0,canvas.width,canvas.height);
+    c2d.fillStyle="rgba(255,255,255,0.02)";
+    c2d.fillRect(0,0,canvas.width,canvas.height);
+    c2d.lineWidth=2;
+    c2d.strokeStyle="rgba(234,240,255,0.85)";
+    c2d.beginPath();
+    const slice=canvas.width/dataArray.length;
+    let x=0;
+    for(let i=0;i<dataArray.length;i++){
+      const vv=dataArray[i]/128.0;
+      const y=(vv*canvas.height)/2;
+      if(i===0) c2d.moveTo(x,y); else c2d.lineTo(x,y);
+      x+=slice;
+    }
+    c2d.stroke();
+  }
+
+  function startViz(){
+    if (vizTimer) return;
+    vizTimer = setInterval(draw, 60);
+  }
+  function stopViz(){
+    if (vizTimer) clearInterval(vizTimer);
+    vizTimer = null;
+    meter.style.width="0%";
+    rmsText.textContent="mic: 0%";
+    c2d.clearRect(0,0,canvas.width,canvas.height);
+  }
+
+  // ----- WAV Encoder -----
+  function floatTo16BitPCM(float32) {
+    const out = new Int16Array(float32.length);
+    for (let i=0;i<float32.length;i++){
+      let s = Math.max(-1, Math.min(1, float32[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return out;
+  }
+  function encodeWavPCM16(samplesFloat32, sampleRate) {
+    const pcm16 = floatTo16BitPCM(samplesFloat32);
+    const bytesPerSample = 2;
+    const blockAlign = bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = pcm16.length * bytesPerSample;
+
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+
+    function writeString(offset, str){
+      for(let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i));
+    }
+
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeString(36, "data");
+    view.setUint32(40, dataSize, true);
+
+    let offset=44;
+    for(let i=0;i<pcm16.length;i++, offset+=2) view.setInt16(offset, pcm16[i], true);
+
+    return new Blob([buffer], { type:"audio/wav" });
+  }
+
+  // ----- Network queue -----
+  let sending=false;
+  const queue=[];
+  function enqueue(wavBlob){
+    queue.push(wavBlob);
+    while(queue.length>2) queue.shift();
+    processQueue();
+  }
+
+  async function processQueue(){
+    if (sending) return;
+    sending=true;
+    try{
+      while(queue.length){
+        const wavBlob = queue.shift();
+        setStatus("wait","übersetze…");
+
+        const fd = new FormData();
+        fd.append("audio", wavBlob, "utt.wav");
+        fd.append("direction", direction.value);
+
+        const resp = await fetch("/audio", { method:"POST", body: fd });
+        const data = await resp.json();
+
+        if (!resp.ok || data.error){
+          console.warn(data);
+          setStatus("wait","Server-Fehler (Console)");
+          continue;
+        }
+        if (data.ignored){
+          setStatus(running ? "live":"off", running ? "aufnehmen…":"bereit");
+          continue;
+        }
+
+        if (data.direction==="tn2de"){
+          col1.textContent = data.source_text || "";
+          col2.textContent = data.source_latin || "";
+          col3.textContent = data.target_de || "";
+        } else {
+          col1.textContent = data.source_text || "";
+          col2.textContent = data.target_arabic || "";
+          col3.textContent = data.target_latin || "";
+        }
+
+        setStatus(running ? "live":"off", running ? "aufnehmen…":"bereit");
+      }
+    } finally {
+      sending=false;
+    }
+  }
+
+  // ----- VAD (global: window.vad) -----
+  let myvad=null;
+  let running=false;
+  let alwaysOn=false;
+
+  function setModeLabel(){
+    modePill.textContent = alwaysOn ? "Modus: Dauer" : "Modus: PTT";
+    holdToggle.classList.toggle("on", alwaysOn);
+    holdToggle.textContent = alwaysOn ? "⏺ Dauer: AN" : "⏺ Dauer: AUS";
+    ptt.style.opacity = alwaysOn ? "0.55" : "1";
+    ptt.style.pointerEvents = alwaysOn ? "none" : "auto";
+  }
+  setModeLabel();
+
+  function vadParams(){
+    const s = Number(strict.value);
+    const positiveSpeechThreshold = 0.65 + (s/100)*0.25; // 0.65..0.90
+    const negativeSpeechThreshold = positiveSpeechThreshold - 0.15;
+
+    const minSpeechMs = Number(minSpeech.value);
+    const minSpeechFrames = Math.max(6, Math.round(minSpeechMs / 30));
+
+    const maxSegmentMs = Number(maxSeg.value);
+
+    return { positiveSpeechThreshold, negativeSpeechThreshold, minSpeechFrames, maxSegmentMs };
+  }
+
+  async function createVAD(){
+    if (!window.vad || !window.vad.MicVAD) {
+      throw new Error("VAD Bundle nicht geladen (window.vad.MicVAD fehlt)");
+    }
+    const { positiveSpeechThreshold, negativeSpeechThreshold, minSpeechFrames, maxSegmentMs } = vadParams();
+
+    vadPill.textContent = "VAD: lädt…";
+    listenPill.textContent = "idle";
+
+    // Offizielles Pattern: vad.MicVAD.new + Asset-Pfade setzen
+    // (siehe README Quick Start) :contentReference[oaicite:1]{index=1}
+    const v = await window.vad.MicVAD.new({
+      positiveSpeechThreshold,
+      negativeSpeechThreshold,
+      minSpeechFrames,
+      preSpeechPadFrames: 10,
+      redemptionFrames: 12,
+
+      // Wichtig: diese Base-Pfade müssen auf CDN zeigen
+      onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/",
+      baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/",
+
+      onSpeechStart: () => {
+        vadPill.textContent = "VAD: speech";
+        listenPill.textContent = "speech";
+      },
+      onSpeechEnd: (audio) => {
+        // audio: Float32Array @ 16000 Hz (laut Docs / Lib)
+        vadPill.textContent = "VAD: idle";
+        listenPill.textContent = "listening";
+
+        // Optional max clamp
+        const sr = 16000;
+        const maxSamples = Math.floor((maxSegmentMs/1000) * sr);
+        const clipped = (audio.length > maxSamples) ? audio.slice(audio.length - maxSamples) : audio;
+
+        // Sehr kurz ignorieren
+        if (clipped.length < Math.floor(sr * 0.12)) return;
+
+        const wavBlob = encodeWavPCM16(clipped, sr);
+        enqueue(wavBlob);
+      }
+    });
+
+    vadPill.textContent = "VAD: bereit";
+    return v;
+  }
+
+  async function start(){
+    if (running) return;
+    setStatus("wait","Mikrofon/VAD…");
+
+    await ensureViz();
+    startViz();
+
+    if (myvad) { try { myvad.pause(); } catch {} myvad=null; }
+    myvad = await createVAD();
+
+    running = true;
+    setStatus("live","aufnehmen…");
+    listenPill.textContent = "listening";
+    myvad.start();
+  }
+
+  async function stop(){
+    if (!running) return;
+    running = false;
+    try { if (myvad) myvad.pause(); } catch {}
+    myvad = null;
+    stopViz();
+    vadPill.textContent = "VAD: stop";
+    listenPill.textContent = "idle";
+    setStatus("off","bereit");
+  }
+
+  reloadVAD.onclick = async () => {
+    const wasRunning = running;
+    await stop();
+    if (wasRunning) await start();
+    else vadPill.textContent = "VAD: bereit";
+  };
+
+  // ----- Controls -----
+  let pttDown=false;
+
+  ptt.addEventListener("mousedown", async (e)=>{
+    e.preventDefault();
+    if (alwaysOn) return;
+    pttDown=true;
+    ptt.classList.add("holding");
+    await start();
+  });
+  window.addEventListener("mouseup", async (e)=>{
+    e.preventDefault();
+    if (alwaysOn) return;
+    if (!pttDown) return;
+    pttDown=false;
+    ptt.classList.remove("holding");
+    await stop();
+  });
+
+  ptt.addEventListener("touchstart", async (e)=>{
+    e.preventDefault();
+    if (alwaysOn) return;
+    pttDown=true;
+    ptt.classList.add("holding");
+    await start();
+  }, {passive:false});
+
+  window.addEventListener("touchend", async (e)=>{
+    e.preventDefault();
+    if (alwaysOn) return;
+    if (!pttDown) return;
+    pttDown=false;
+    ptt.classList.remove("holding");
+    await stop();
+  }, {passive:false});
+
+  window.addEventListener("touchcancel", async (e)=>{
+    e.preventDefault();
+    if (alwaysOn) return;
+    if (!pttDown) return;
+    pttDown=false;
+    ptt.classList.remove("holding");
+    await stop();
+  }, {passive:false});
+
+  holdToggle.onclick = async () => {
+    alwaysOn = !alwaysOn;
+    setModeLabel();
+    pttDown=false;
+    ptt.classList.remove("holding");
+    if (alwaysOn) await start();
+    else await stop();
+  };
+
+  setStatus("off","bereit");
+</script>
+</body>
+</html>
